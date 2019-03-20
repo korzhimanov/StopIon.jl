@@ -5,3 +5,5 @@
 # Backup-files
 *~
 
+# Jupyter
+.ipynb_checkpoints
