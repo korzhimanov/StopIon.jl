@@ -10,6 +10,7 @@ const mc³_e² = mc²*1.0u"c"*4π*Unitful.ɛ0/(Unitful.q^2)
 const mc²_ħ = mc²/Unitful.ħ
 
 @derived_dimension Concentration inv(Unitful.𝐋^3)
+@derived_dimension ParticleDensityFlux inv(Unitful.𝐋^2)
 
 const shell_correction_coefficient = 0.5
 
@@ -131,6 +132,71 @@ function fixed_background(
     end
     
     return deposition
+end
+
+function self_consistent(
+    projectile::Particle,
+    particle_density_flux::ParticleDensityFlux,
+    target::Particle,
+    density::Unitful.Density,
+    energy_samplings::Vector{EnergyT},
+    energy_distribution_function,
+    x_samplings::Vector{LengthT}) where EnergyT<:Unitful.Energy where LengthT<:Unitful.Length
+    
+    @assert length(energy_samplings) == length(energy_distribution_function) "energy samplings and energy distribution function must be of the same length!"
+    
+    Na = density/target.m
+    KNa = 4π*e⁴_mc²*Na
+    
+    x_diff = diff(x_samplings)
+    deposition = fill(0.0u"MJ/g", length(x_diff))
+    T_e = fill(0.01u"eV", length(x_diff))
+    Z_eff = fill(0.01, length(x_diff))
+    
+    for (ɛ0, f) in zip(reverse(energy_samplings), reverse(energy_distribution_function))
+        ɛ = ɛ0
+        for (i, Δx) in enumerate(x_diff)
+            if (ɛ < 0u"MeV")
+                break
+            end
+            
+            KNaZ = KNa*(target.z-Z_eff[i])
+            KNaZ_eff = KNa*Z_eff[i]
+            
+            Δɛ = 0u"eV"
+            
+            Δɛ_free = KNaZ_eff*z_p(ɛ,projectile)^2/β²(ɛ, projectile)*G(ɛ, projectile, T_e[i])*L_free(ɛ, projectile, density/target.m, T_e[i], Z_eff[i])*Δx
+            if Δɛ_free > 0u"MeV"
+                T_e[i] += f*particle_density_flux*Δɛ_free/(Na*Δx*Z_eff[i])/1.5
+                Δɛ += Δɛ_free
+            end
+            
+            Z_eff_old = Z_eff[i]
+            Δɛ_bound = KNaZ*z_p(ɛ,projectile)^2/β²(ɛ, projectile)*L_bound(ɛ, projectile, target, Z_eff[i])*Δx
+            if (Δɛ_bound > 0u"MeV") && (Z_eff[i] < target.z)
+                ionization_energy = f*particle_density_flux*Δɛ_bound/(Na*Δx)
+                while ionization_energy > 0u"eV"
+                    ionization_energy_limit = (floor(Z_eff[i]+1)-Z_eff[i])*MIP(floor(target.z-Z_eff[i]))*(target.z/(target.z-Z_eff[i]))^2
+                    if ionization_energy > ionization_energy_limit
+                        Z_eff[i] = floor(Z_eff[i]+1)
+                        ionization_energy -= ionization_energy_limit
+                    else
+                        Z_eff[i] += ionization_energy/ionization_energy_limit * (floor(Z_eff[i]+1)-Z_eff[i])
+                        break
+                    end
+                end
+                
+                T_e[i] *= Z_eff_old/Z_eff[i]
+                
+                Δɛ += Δɛ_bound
+            end
+            
+            deposition[i] += Δɛ*f*particle_density_flux/(density*Δx)
+            ɛ -= Δɛ
+        end
+    end
+    
+    return deposition, T_e, Z_eff
 end
 
 end
