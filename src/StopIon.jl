@@ -2,7 +2,7 @@ module StopIon
 using Unitful
 using SpecialFunctions: erf
 
-export Particle, bethe_bloch, fixed_background
+export Particle, bethe_bloch, fixed_background, self_consistent
 
 const mc² = Unitful.me*Unitful.c0*Unitful.c0
 const e⁴_mc² = (Unitful.q^2/(4π*Unitful.ɛ0))^2/mc²
